@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """transformer"""
-
-import tensorflow.compat.v2 as tf
-import numpy as np
+import tensorflow as tf
 
 
 def point_wise_feed_forward_network(dm, hidden):
@@ -14,21 +12,27 @@ def point_wise_feed_forward_network(dm, hidden):
 
 def get_angles(pos, i, d_model):
     """division"""
-    angle_rates = 1 / np.power(10000, (2 * (i // 2)) / np.float32(d_model))
+    angle_rates = 1 / tf.pow(
+        10000.0,
+        (2 * tf.math.floor(i / 2)) / tf.cast(d_model, tf.float32))
     return pos * angle_rates
 
 
 def positional_encoding(position, d_model):
     """calculate positional encoding"""
-    angle_rads = get_angles(np.arange(position)[:, np.newaxis],
-                            np.arange(d_model)[np.newaxis, :],
-                            d_model)
+    positions = tf.cast(tf.range(position)[:, tf.newaxis], tf.float32)
+    indices = tf.cast(tf.range(d_model)[tf.newaxis, :], tf.float32)
 
-    angle_rads[:, 0::2] = np.sin(angle_rads[:, 0::2])
+    angle_rads = get_angles(positions, indices, d_model)
 
-    angle_rads[:, 1::2] = np.cos(angle_rads[:, 1::2])
+    sines = tf.math.sin(angle_rads[:, 0::2])
+    cosines = tf.math.cos(angle_rads[:, 1::2])
 
-    pos_encoding = angle_rads[np.newaxis, ...]
+    # interleave sines/cosines back into (position, d_model)
+    pos_encoding = tf.reshape(tf.stack([sines, cosines], axis=-1),
+                              (position, d_model))
+
+    pos_encoding = pos_encoding[tf.newaxis, ...]
 
     return tf.cast(pos_encoding, dtype=tf.float32)
 
@@ -146,7 +150,6 @@ class DecoderBlock(tf.keras.layers.Layer):
         self.dropout3 = tf.keras.layers.Dropout(drop_rate)
 
     def call(self, x, encoder_output, training, look_ahead_mask, padding_mask):
-        the block’s output
         """call method"""
         attn1, attn_weights_block1 = self.mha1(x, x, x, look_ahead_mask)
         attn1 = self.dropout1(attn1, training=training)
@@ -232,9 +235,9 @@ class Decoder(tf.keras.layers.Layer):
         for i in range(self.N):
             x, block1, block2 = self.blocks[i](x, encoder_output, training,
                                                look_ahead_mask, padding_mask)
+            attention_weights['decoder_layer{}_block1'.format(i + 1)] = block1
+            attention_weights['decoder_layer{}_block2'.format(i + 1)] = block2
 
-        attention_weights['decoder_layer{}_block1'.format(i + 1)] = block1
-        attention_weights['decoder_layer{}_block2'.format(i + 1)] = block2
         return x, attention_weights
 
 

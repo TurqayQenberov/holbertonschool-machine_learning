@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Create"""
-
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 
 
 def create_masks(inputs, target):

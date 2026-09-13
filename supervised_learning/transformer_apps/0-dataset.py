@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Class Dataset"""
-
-import tensorflow.compat.v2 as tf
-import tensorflow_datasets as tfds
+import tensorflow as tf
+import transformers
+from setup import load_pt2en
 
 
 class Dataset():
@@ -10,23 +10,31 @@ class Dataset():
 
     def __init__(self):
         """ initialize dataset """
+        self.data_train, self.data_valid = load_pt2en()
 
-        examples, metadata = tfds.load('ted_hrlr_translate/pt_to_en',
-                                       with_info=True,
-                                       as_supervised=True)
-
-        self.data_train, self.data_valid = examples['train'], \
-            examples['validation']
         self.tokenizer_pt, self.tokenizer_en = self.tokenize_dataset(
             self.data_train)
 
     def tokenize_dataset(self, data):
         """tokenize data """
+        pt_base = transformers.AutoTokenizer.from_pretrained(
+            'neuralmind/bert-base-portuguese-cased', use_fast=True)
+        en_base = transformers.AutoTokenizer.from_pretrained(
+            'bert-base-uncased', use_fast=True)
 
-        tokenizer_en = tfds.features.text.SubwordTextEncoder.build_from_corpus(
-            (en.numpy() for pt, en in data), target_vocab_size=2 ** 15)
+        def pt_sentences():
+            """iterator"""
+            for pt, _ in data.as_numpy_iterator():
+                yield pt.decode('utf-8')
 
-        tokenizer_pt = tfds.features.text.SubwordTextEncoder.build_from_corpus(
-            (pt.numpy() for pt, en in data), target_vocab_size=2 ** 15)
+        def en_sentences():
+            """iterator"""
+            for _, en in data.as_numpy_iterator():
+                yield en.decode('utf-8')
+
+        tokenizer_pt = pt_base.train_new_from_iterator(
+            pt_sentences(), vocab_size=2 ** 15)
+        tokenizer_en = en_base.train_new_from_iterator(
+            en_sentences(), vocab_size=2 ** 15)
 
         return tokenizer_pt, tokenizer_en

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Class dataset"""
+import tensorflow as tf
+import transformers
+from setup import load_pt2en
 
-import tensorflow.compat.v2 as tf
-import tensorflow_datasets as tfds
+BUFFER_SIZE = 20000
 
 
 class Dataset():
@@ -18,11 +20,7 @@ class Dataset():
             return tf.logical_and(tf.size(x) <= max_length,
                                   tf.size(y) <= max_length)
 
-        examples, metadata = tfds.load('ted_hrlr_translate/pt_to_en',
-                                       with_info=True,
-                                       as_supervised=True)
-        self.data_train, self.data_valid = examples['train'], \
-            examples['validation']
+        self.data_train, self.data_valid = load_pt2en()
 
         self.tokenizer_pt, self.tokenizer_en = \
             self.tokenize_dataset(self.data_train)
@@ -33,13 +31,11 @@ class Dataset():
         # cache the dataset to memory
         self.data_train = self.data_train.cache()
 
-        shuff = metadata.splits['train'].num_examples
-        self.data_train = self.data_train.shuffle(shuff)
+        self.data_train = self.data_train.shuffle(BUFFER_SIZE)
         pad_shape = ([None], [None])
         self.data_train = self.data_train.padded_batch(batch_size,
                                                        padded_shapes=pad_shape)
-        aux = tf.data.experimental.AUTOTUNE
-        self.data_train = self.data_train.prefetch(aux)
+        self.data_train = self.data_train.prefetch(tf.data.AUTOTUNE)
 
         # valid
         self.data_valid = self.data_valid.map(self.tf_encode)
@@ -49,25 +45,41 @@ class Dataset():
 
     def tokenize_dataset(self, data):
         """tokenize data """
+        pt_base = transformers.AutoTokenizer.from_pretrained(
+            'neuralmind/bert-base-portuguese-cased', use_fast=True)
+        en_base = transformers.AutoTokenizer.from_pretrained(
+            'bert-base-uncased', use_fast=True)
 
-        tokenizer_pt = tfds.features.text.SubwordTextEncoder.build_from_corpus(
-            (pt.numpy() for pt, en in data),
-            target_vocab_size=2 ** 15)
+        def pt_sentences():
+            """iterator"""
+            for pt, _ in data.as_numpy_iterator():
+                yield pt.decode('utf-8')
 
-        tokenizer_en = tfds.features.text.SubwordTextEncoder.build_from_corpus(
-            (en.numpy() for pt, en in data),
-            target_vocab_size=2 ** 15)
+        def en_sentences():
+            """iterator"""
+            for _, en in data.as_numpy_iterator():
+                yield en.decode('utf-8')
+
+        tokenizer_pt = pt_base.train_new_from_iterator(
+            pt_sentences(), vocab_size=2 ** 15)
+        tokenizer_en = en_base.train_new_from_iterator(
+            en_sentences(), vocab_size=2 ** 15)
 
         return tokenizer_pt, tokenizer_en
 
     def encode(self, pt, en):
         """ encoding """
+        pt_text = pt.numpy().decode('utf-8')
+        en_text = en.numpy().decode('utf-8')
 
-        lang1 = [self.tokenizer_pt.vocab_size] + self.tokenizer_pt.encode(
-            pt.numpy()) + [self.tokenizer_pt.vocab_size + 1]
+        pt_vocab = self.tokenizer_pt.vocab_size
+        en_vocab = self.tokenizer_en.vocab_size
 
-        lang2 = [self.tokenizer_en.vocab_size] + self.tokenizer_en.encode(
-            en.numpy()) + [self.tokenizer_en.vocab_size + 1]
+        lang1 = [pt_vocab] + self.tokenizer_pt.encode(
+            pt_text, add_special_tokens=False) + [pt_vocab + 1]
+
+        lang2 = [en_vocab] + self.tokenizer_en.encode(
+            en_text, add_special_tokens=False) + [en_vocab + 1]
 
         return lang1, lang2
 
