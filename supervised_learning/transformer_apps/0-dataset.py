@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Class Dataset"""
-import tensorflow as tf
 import transformers
 from setup import load_pt2en
 
